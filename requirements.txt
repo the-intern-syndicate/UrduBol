@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+faster-whisper
+numpy
+scipy
+websockets
+python-multipart
