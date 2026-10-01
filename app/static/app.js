@@ -1,185 +1,202 @@
 const $ = id => document.getElementById(id);
+const WS_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/transcribe`;
+const box = $('transcript-container'), btn = $('toggle-mic-btn'), btnText = $('btn-text'), dot = $('recording-dot');
+const PLACEHOLDER = box.innerHTML;
 
-const btn = $('toggle-mic-btn');
-const btnText = $('btn-text');
-const dot = $('recording-dot');
-const box = $('transcript-container');
-const ph = $('placeholder-text');
+// Chunking: cut at a pause once we have >= MIN_S seconds, or force a cut at MAX_S.
+const MIN_S = 2, MAX_S = 8, PAUSE_BLOCKS = 2, SILENCE_RMS = 0.012;
 
-let recording = false;
-let tick = null;
-let secs = 0;
-let ws = null;
-let audioCtx = null;
-let mediaStream = null;
-let processor = null;
-let pcmBuffer = [];
+let recording = false, busyUpload = false, ws, tick, finishT, secs = 0;
+let stream, actx, analyser, proc, SR = 16000;
+let chunks = [], len = 0, silent = 0, heard = false, pending = 0;
 
-const WS_URL = `ws://${window.location.host}/ws/transcribe`;
+/* ---------- UI helpers ---------- */
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 1800);
+}
+function setStatus(msg, kind = '') { const s = $('status-line'); s.textContent = msg; s.className = 'status ' + kind; }
+function setModelHealth(ok, label) { $('model-dot').className = 'dot ' + (ok ? 'ok' : 'bad'); $('model-health').textContent = label; }
+const getText = () => [...box.querySelectorAll('.seg')].map(p => p.textContent).join('\n');
+const updateWords = () => { $('word-count').textContent = (getText().match(/\S+/g) || []).length; };
+const pad = n => String(n).padStart(2, '0');
+const renderTime = () => { $('lecture-timer').textContent = `${pad(Math.floor(secs / 3600))}:${pad(Math.floor(secs % 3600 / 60))}:${pad(secs % 60)}`; };
 
-function addSegment(text, latencyMs) {
+function addSegment(text, ms) {
   if (!text) return;
-  if (ph) ph.remove();
-
+  $('placeholder-text')?.remove();
   const p = document.createElement('p');
-  p.className = 'fresh';
-  p.textContent = text;
-  box.appendChild(p);
-  box.scrollTop = box.scrollHeight;
-
-  if (latencyMs != null) {
-    $('latency-badge').textContent = Math.round(latencyMs) + ' ms';
-  }
+  p.className = 'seg fresh'; p.dir = 'auto'; p.textContent = text;   // dir=auto: Urdu flows RTL, English LTR
+  box.appendChild(p); box.scrollTop = box.scrollHeight;
+  if (ms != null) $('latency-badge').textContent = Math.round(ms) + ' ms';
   updateWords();
 }
-
-function setModelHealth(ok, label) {
-  $('model-dot').style.background = ok ? '#10B981' : '#EF4444';
-  $('model-health').textContent = label || (ok ? 'CTranslate2 تیار' : 'ماڈل میں خرابی');
+function refreshStatus() {
+  if (recording) setStatus(pending ? `Listening… transcribing ${pending} chunk${pending > 1 ? 's' : ''}` : 'Listening…', 'live');
 }
 
-const getText = () => [...box.querySelectorAll('p')].map(p => p.textContent).join('\n');
-const words = () => (getText().trim().match(/\S+/g) || []).length;
-function updateWords() { $('word-count').textContent = words(); }
-
-const pad = n => String(n).padStart(2, '0');
-function renderTime() {
-  (('lecture-timer').textContent = `\){pad(Math.floor(secs / 3600))}:\({pad(Math.floor((secs % 3600) / 60))}:\){pad(secs % 60)}`);
-}
-
-// Convert PCM Float32 buffer into a valid WAV binary ArrayBuffer for scipy.io.wavfile
-function createWavBuffer(samples, sampleRate = 16000) {
-  const buffer = new ArrayBuffer(44 + samples.length * 2);
-  const view = new DataView(buffer);
-
-  /* RIFF chunk descriptor */
-  writeString(view, 0, 'RIFF');
-  view.setUint32(4, 36 + samples.length * 2, true);
-  writeString(view, 8, 'WAVE');
-  /* fmt sub-chunk */
-  writeString(view, 12, 'fmt ');
-  view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
-  view.setUint16(20, 1, true);  // AudioFormat (1 for PCM)
-  view.setUint16(22, 1, true);  // NumChannels (1 = mono)
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true); // ByteRate
-  view.setUint16(32, 2, true);  // BlockAlign
-  view.setUint16(34, 16, true); // BitsPerSample
-  /* data sub-chunk */
-  writeString(view, 36, 'data');
-  view.setUint32(40, samples.length * 2, true);
-
-  // Write PCM samples (convert float32 to int16)
-  let offset = 44;
-  for (let i = 0; i < samples.length; i++, offset += 2) {
+/* ---------- Audio helpers ---------- */
+function concat(list, n) { const out = new Float32Array(n); let o = 0; for (const c of list) { out.set(c, o); o += c.length; } return out; }
+function toWav(samples, sr) {
+  const b = new ArrayBuffer(44 + samples.length * 2), v = new DataView(b);
+  const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); v.setUint32(4, 36 + samples.length * 2, true); w(8, 'WAVEfmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, 'data'); v.setUint32(40, samples.length * 2, true);
+  for (let i = 0; i < samples.length; i++) {
     const s = Math.max(-1, Math.min(1, samples[i]));
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
   }
-
-  return buffer;
+  return b;
+}
+function flush() {
+  if (heard && len >= SR * 0.3 && ws?.readyState === 1) { ws.send(toWav(concat(chunks, len), SR)); pending++; }
+  chunks = []; len = 0; silent = 0; heard = false; refreshStatus();
 }
 
-function writeString(view, offset, string) {
-  for (let i = 0; i < string.length; i++) {
-    view.setUint8(offset + i, string.charCodeAt(i));
-  }
+/* ---------- WebSocket ---------- */
+function openSocket() {
+  return new Promise((resolve, reject) => {
+    const s = new WebSocket(WS_URL); s.binaryType = 'arraybuffer';
+    s.onmessage = e => {
+      const m = JSON.parse(e.data);
+      if (m.type === 'ready') resolve(s);
+      else if (m.type === 'error') reject(new Error(m.message));
+      else onMsg(m);
+    };
+    s.onerror = () => reject(new Error('Cannot reach the server.'));
+    s.onclose = () => { reject(new Error('Connection closed.')); if (recording) { setStatus('Connection lost. Press record to retry.', 'err'); stop(true); } };
+  });
+}
+function onMsg(m) {
+  if (m.type === 'segment') { pending = Math.max(0, pending - 1); addSegment(m.text, m.latency_ms); refreshStatus(); }
+  else if (m.type === 'done') { clearTimeout(finishT); ws.close(); setStatus('Ready'); }
 }
 
+/* ---------- Record ---------- */
 async function start() {
-  try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-    const source = audioCtx.createMediaStreamSource(mediaStream);
-
-    // Capture PCM data using AudioWorklet or ScriptProcessor
-    processor = audioCtx.createScriptProcessor(4096, 1, 1);
-    source.connect(processor);
-    processor.connect(audioCtx.destination);
-
-    ws = new WebSocket(WS_URL);
-    ws.binaryType = "arraybuffer";
-
-    ws.onopen = () => setModelHealth(true, "متصل - CTranslate2");
-    ws.onmessage = e => {
-      const data = JSON.parse(e.data);
-      addSegment(data.text, data.latency_ms);
-    };
-    ws.onerror = () => setModelHealth(false, 'کنکشن میں خرابی');
-
-    processor.onaudioprocess = (e) => {
-      if (!recording) return;
-      const channelData = e.inputBuffer.getChannelData(0);
-      pcmBuffer.push(...channelData);
-
-      // Send chunk every ~3 seconds of recorded audio
-      if (pcmBuffer.length >= 16000 * 3) {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          const wavBuffer = createWavBuffer(new Float32Array(pcmBuffer), 16000);
-          ws.send(wavBuffer);
-        }
-        pcmBuffer = []; // Clear buffer for next chunk
-      }
-    };
-
-    recording = true;
-    btn.classList.add('recording');
-    btnText.textContent = 'ریکارڈنگ روکیں';
-    dot.classList.remove('hidden');
-    tick = setInterval(() => { secs++; renderTime(); }, 1000);
-
-  } catch (err) {
-    console.error("Mic access or WS error:", err);
-    setModelHealth(false, 'مائیک فعال نہیں ہو سکا');
+  if (busyUpload) return toast('Wait for the upload to finish');
+  actx = new AudioContext({ sampleRate: 16000 });          // created inside the click so the browser allows it
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }); }
+  catch { actx.close(); return setStatus('Microphone blocked. Allow access in the browser and try again.', 'err'); }
+  btn.disabled = true; setStatus('Connecting to the model…');
+  try { ws = await openSocket(); }
+  catch (err) { stream.getTracks().forEach(t => t.stop()); actx.close(); btn.disabled = false; setModelHealth(false, 'Unavailable'); return setStatus(err.message, 'err'); }
+  btn.disabled = false; setModelHealth(true, 'Connected');
+  await actx.resume(); SR = actx.sampleRate;
+  const src = actx.createMediaStreamSource(stream);
+  analyser = actx.createAnalyser(); analyser.fftSize = 128; src.connect(analyser);
+  proc = actx.createScriptProcessor(4096, 1, 1); src.connect(proc); proc.connect(actx.destination);
+  chunks = []; len = 0; silent = 0; heard = false; pending = 0; secs = 0; renderTime();
+  proc.onaudioprocess = e => {
+    if (!recording) return;
+    const d = new Float32Array(e.inputBuffer.getChannelData(0));
+    let sum = 0; for (let i = 0; i < d.length; i++) sum += d[i] * d[i];
+    if (Math.sqrt(sum / d.length) > SILENCE_RMS) { heard = true; silent = 0; } else silent++;
+    chunks.push(d); len += d.length;
+    const sec = len / SR;
+    if (!heard && sec >= MIN_S) { chunks = chunks.slice(-2); len = chunks.reduce((a, c) => a + c.length, 0); return; }  // drop silence, keep a short lead-in
+    if (heard && ((sec >= MIN_S && silent >= PAUSE_BLOCKS) || sec >= MAX_S)) flush();
+  };
+  recording = true;
+  btn.classList.add('recording'); btn.setAttribute('aria-pressed', 'true');
+  btnText.textContent = 'Stop recording'; dot.classList.remove('hidden');
+  tick = setInterval(() => { secs++; renderTime(); }, 1000);
+  refreshStatus();
+}
+function stop(abort = false) {
+  if (!recording) return;
+  if (!abort) flush();
+  recording = false; clearInterval(tick);
+  proc.onaudioprocess = null; proc.disconnect(); stream.getTracks().forEach(t => t.stop()); actx.close(); analyser = null;
+  btn.classList.remove('recording'); btn.setAttribute('aria-pressed', 'false');
+  btnText.textContent = 'Start recording'; dot.classList.add('hidden');
+  if (!abort && ws.readyState === 1) {          // wait for the last chunk's text before closing
+    setStatus('Finishing the last words…', 'live');
+    ws.send('flush'); finishT = setTimeout(() => ws.close(), 30000);
   }
 }
-
-function stop() {
-  recording = false;
-  clearInterval(tick);
-  btn.classList.remove('recording');
-  btnText.textContent = 'ریکارڈنگ شروع کریں';
-  dot.classList.add('hidden');
-
-  // Send any remaining audio buffer before closing
-  if (pcmBuffer.length > 0 && ws && ws.readyState === WebSocket.OPEN) {
-    const wavBuffer = createWavBuffer(new Float32Array(pcmBuffer), 16000);
-    ws.send(wavBuffer);
-    pcmBuffer = [];
-  }
-
-  if (processor) processor.disconnect();
-  if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
-  if (audioCtx) audioCtx.close();
-  if (ws) ws.close();
-}
-
 btn.addEventListener('click', () => recording ? stop() : start());
 
-// Utility Buttons
-function download() {
-  const t = getText();
-  if (!t) return;
+/* ---------- Upload ---------- */
+function setPct(p, label) { $('bar-fill').style.width = Math.round(p * 100) + '%'; $('file-pct').textContent = label || Math.round(p * 100) + '%'; }
+async function uploadFile(file) {
+  if (recording) return toast('Stop recording first');
+  if (busyUpload) return;
+  busyUpload = true; $('upload-progress').classList.remove('hidden');
+  $('file-name').textContent = file.name; setPct(0, 'Uploading…');
+  try {
+    const fd = new FormData(); fd.append('file', file);
+    const r = await fetch('/api/transcribe-file', { method: 'POST', body: fd });
+    if (!r.ok) throw new Error('server returned ' + r.status);
+    setPct(0, 'Transcribing…');
+    const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '';
+    for (;;) {
+      const { done, value } = await rd.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n'); buf = lines.pop();
+      for (const l of lines) {
+        if (!l.trim()) continue;
+        const m = JSON.parse(l); if (m.error) throw new Error(m.error);
+        addSegment(m.text); setPct(m.duration ? Math.min(1, m.end / m.duration) : 0);
+      }
+    }
+    setPct(1); toast('Transcription complete');
+  } catch (err) { setPct(0, 'Failed'); toast('Upload failed: ' + err.message); }
+  finally { busyUpload = false; $('file-input').value = ''; }
+}
+const dz = $('drop-zone'), fi = $('file-input');
+dz.onclick = () => fi.click();
+dz.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fi.click(); } };
+fi.onchange = () => fi.files[0] && uploadFile(fi.files[0]);
+['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('over'); }));
+dz.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) uploadFile(f); });
+
+/* ---------- Transcript actions ---------- */
+$('export-btn').onclick = () => {
+  const t = getText(); if (!t) return toast('Nothing to download yet');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([t], { type: 'text/plain;charset=utf-8' }));
-  a.download = `urdubol_transcript_${new Date().toISOString().slice(0, 10)}.txt`;
-  a.click();
-}
-
-$('export-btn').onclick = download;
-$('download-btn').onclick = download;
-
+  a.download = `urdubol_transcript_${new Date().toISOString().slice(0, 10)}.txt`; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 500);
+};
 $('copy-btn').onclick = async () => {
-  try {
-    await navigator.clipboard.writeText(getText());
-    alert('متن کاپی ہو گیا ہے');
-  } catch (e) {}
+  const t = getText(); if (!t) return toast('Nothing to copy yet');
+  try { await navigator.clipboard.writeText(t); toast('Copied to clipboard'); } catch { toast('Copy not allowed by the browser'); }
+};
+$('clear-btn').onclick = () => {
+  box.innerHTML = PLACEHOLDER; updateWords(); $('latency-badge').textContent = '— ms';
+  if (!recording) { secs = 0; renderTime(); }
 };
 
-$('clear-btn').onclick = () => {
-  box.innerHTML = '';
-  box.appendChild(ph);
-  secs = 0;
-  renderTime();
-  updateWords();
-  $('latency-badge').textContent = '— ms';
-};
+/* ---------- Waveform ---------- */
+const cv = $('wave-canvas'), cx = cv.getContext('2d'), css = getComputedStyle(document.documentElement);
+function draw() {
+  const w = cv.clientWidth, h = cv.clientHeight, r = devicePixelRatio || 1;
+  if (cv.width !== Math.round(w * r)) { cv.width = Math.round(w * r); cv.height = Math.round(h * r); }
+  cx.setTransform(r, 0, 0, r, 0, 0); cx.clearRect(0, 0, w, h);
+  const n = Math.floor(w / 7), data = new Uint8Array(64);
+  if (analyser) analyser.getByteFrequencyData(data);
+  for (let i = 0; i < n; i++) {
+    const v = analyser ? data[i % 48] / 255 : .05 + .03 * Math.sin(i * .5);
+    const bh = Math.max(3, v * h * .9);
+    cx.fillStyle = analyser ? (i % 6 === 0 ? css.getPropertyValue('--rose') : css.getPropertyValue('--emerald')) : css.getPropertyValue('--sand');
+    cx.beginPath(); cx.roundRect(i * 7 + 2, (h - bh) / 2, 3.5, bh, 2); cx.fill();
+  }
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+
+/* ---------- Startup checks ---------- */
+fetch('/api/health').then(r => r.json()).then(() => setModelHealth(true, 'Ready')).catch(() => setModelHealth(false, 'Server offline'));
+fetch('/api/samples').then(r => r.json()).then(list => {
+  if (!list.length) return;
+  $('samples').classList.remove('hidden');
+  list.slice(0, 3).forEach(name => {
+    const b = document.createElement('button'); b.className = 'chip'; b.textContent = name;
+    b.onclick = async () => { const r = await fetch('/samples/' + encodeURIComponent(name)); uploadFile(new File([await r.blob()], name)); };
+    $('sample-list').appendChild(b);
+  });
+}).catch(() => {});

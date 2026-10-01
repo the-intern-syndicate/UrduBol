@@ -4,14 +4,10 @@ import numpy as np
 from scipy.io import wavfile
 from faster_whisper import WhisperModel
 
+
 class UrduTranscriptionEngine:
     def __init__(self, model_id: str = "kingabzpro/whisper-large-v3-urdu-ct2", device: str = "cpu", compute_type: str = "int8"):
-        # Using the pre-converted CTranslate2 Urdu model directly from Hugging Face
-        self.model = WhisperModel(
-            model_id,
-            device=device,
-            compute_type=compute_type
-        )
+        self.model = WhisperModel(model_id, device=device, compute_type=compute_type)
 
     def decode_audio_bytes(self, audio_bytes: bytes) -> np.ndarray:
         with io.BytesIO(audio_bytes) as audio_file:
@@ -38,23 +34,20 @@ class UrduTranscriptionEngine:
 
     def transcribe_chunk(self, audio_data: np.ndarray) -> dict:
         start_time = time.perf_counter()
-
         if len(audio_data) == 0:
             return {"text": "", "latency_ms": 0.0}
 
         segments, _ = self.model.transcribe(
-            audio_data,
-            language="ur",
-            task="transcribe",
-            beam_size=5,
-            vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=300)
+            audio_data, language="ur", task="transcribe", beam_size=5,
+            vad_filter=True, vad_parameters=dict(min_silence_duration_ms=300),
         )
+        text = " ".join(s.text.strip() for s in segments).strip()
+        return {"text": text, "latency_ms": round((time.perf_counter() - start_time) * 1000, 2)}
 
-        transcribed_text = " ".join([segment.text.strip() for segment in segments]).strip()
-        latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
-
-        return {
-            "text": transcribed_text,
-            "latency_ms": latency_ms
-        }
+    def transcribe_file(self, path: str):
+        """Yield one dict per segment of an audio file (mp3/wav/m4a/... decoded by PyAV)."""
+        segments, info = self.model.transcribe(
+            path, language="ur", task="transcribe", beam_size=5, vad_filter=True,
+        )
+        for s in segments:
+            yield {"text": s.text.strip(), "start": s.start, "end": s.end, "duration": info.duration}

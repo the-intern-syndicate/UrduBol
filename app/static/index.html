@@ -1,88 +1,86 @@
 <!DOCTYPE html>
-<html lang="ur" dir="rtl">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>اردو بول – UrduBol</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>UrduBol – Urdu Lecture Transcriber</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=DM+Sans:wght@400;500;600&family=Noto+Nastaliq+Urdu:wght@500;700&family=Noto+Sans+Arabic:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body class="py-6 px-4 sm:px-8">
+<body>
+<div class="shell">
 
-  <div class="mx-auto flex max-w-5xl flex-col gap-5 min-h-[90vh]">
-    
-    <!-- Header -->
-    <header class="glass-card flex flex-wrap items-center justify-between gap-4 px-6 py-4">
-      <div class="flex items-center gap-4">
-        <div class="grid h-12 w-12 place-items-center rounded-2xl bg-[#064E3B] text-[#FAF6F0] shadow-sm">
-          <span class="nastaliq text-2xl leading-none pt-1">بول</span>
-        </div>
-        <div>
-          <h1 class="nastaliq text-2xl font-bold text-[#064E3B] leading-snug">اردو لیکچر ٹرانسکرائبر</h1>
-          <p class="text-xs text-[#5C7066] -mt-1 font-sans">اردو بول · UrduBol — COMSATS</p>
-        </div>
-      </div>
+  <header class="top">
+    <div>
+      <h1><span class="wm">UrduBol</span><span class="ur wm-ur">اردو بول</span></h1>
+      <p class="tag">Real-time Urdu lecture transcription</p>
+      <p class="tag ur">اردو لیکچرز کی فوری تحریر</p>
+    </div>
+    <div class="badges">
+      <span class="badge">100% on-device</span>
+      <span class="badge alt">Whisper + CTranslate2</span>
+    </div>
+  </header>
 
-      <div class="flex items-center gap-3">
-        <span class="badge-blush rounded-full px-3.5 py-1 text-xs font-semibold" dir="ltr">Whisper + CTranslate2</span>
-        <span class="badge-champagne rounded-full px-3.5 py-1 text-xs font-medium">تاخیر: <span id="latency-badge" class="font-mono font-bold text-[#064E3B]">— ms</span></span>
-      </div>
-    </header>
-
-    <!-- Controls Toolbar -->
-    <section class="glass-card flex flex-wrap items-center gap-4 p-4">
-      <button id="toggle-mic-btn" class="btn-emerald flex items-center gap-3 rounded-full px-7 py-3 text-base font-semibold shadow-sm cursor-pointer">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></svg>
-        <span id="btn-text">ریکارڈنگ شروع کریں</span>
-        <span id="recording-dot" class="w-2.5 h-2.5 rounded-full bg-white hidden"></span>
+  <div class="grid2">
+    <!-- Record -->
+    <section class="card" aria-labelledby="h-rec">
+      <h2 id="h-rec">Record live <span class="ur">لائیو ریکارڈنگ</span></h2>
+      <p class="hint">Speak, or hold the mic near a lecture. Text appears after each pause.</p>
+      <button id="toggle-mic-btn" class="btn-primary" aria-pressed="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></svg>
+        <span id="btn-text">Start recording</span>
+        <span id="recording-dot" class="rec-dot hidden"></span>
       </button>
-
-      <!-- Waveform Canvas -->
-      <div class="relative min-w-[180px] flex-1 overflow-hidden rounded-2xl bg-[#F5E9D4] border border-[#EADDC8]" style="height: 52px;">
-        <canvas id="wave-canvas" class="h-full w-full"></canvas>
-      </div>
-
-      <button id="export-btn" class="btn-ghost flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold cursor-pointer">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 21h16"/></svg>
-        ٹرانسکرپٹ برآمد کریں
-      </button>
+      <div class="wave"><canvas id="wave-canvas" aria-label="Audio level"></canvas></div>
+      <p id="status-line" class="status" role="status">Ready</p>
     </section>
 
-    <!-- Transcript Box -->
-    <main class="glass-card relative flex-1 min-h-[380px] flex flex-col">
-      <!-- Floating Quick Actions -->
-      <div class="absolute start-4 top-4 z-10 flex gap-2">
-        <button id="copy-btn" class="btn-ghost fab-btn" title="کاپی"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg></button>
-        <button id="download-btn" class="btn-ghost fab-btn" title="TXT ڈاؤن لوڈ"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 21h16"/></svg></button>
-        <button id="clear-btn" class="btn-ghost fab-btn" title="صاف کریں"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
+    <!-- Upload -->
+    <section class="card" aria-labelledby="h-up">
+      <h2 id="h-up">Upload audio <span class="ur">آڈیو اپلوڈ کریں</span></h2>
+      <p class="hint">MP3, WAV, M4A, OGG or FLAC. Long lectures are fine.</p>
+      <div id="drop-zone" class="drop" tabindex="0" role="button" aria-label="Choose an audio file">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 20h16"/></svg>
+        <strong>Drop a file here</strong>
+        <span>or click to browse</span>
       </div>
-
-      <div id="transcript-container" class="h-full overflow-y-auto px-6 pb-8 pt-16 sm:px-10 max-h-[50vh]">
-        <p id="placeholder-text" class="nastaliq text-[#5C7066] text-xl leading-loose">مائیکرو فون آن کریں اور بولنا شروع کریں...</p>
+      <input id="file-input" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac,.webm,.mp4" hidden>
+      <div id="upload-progress" class="progress hidden">
+        <div class="plabel"><span id="file-name"></span><span id="file-pct"></span></div>
+        <div class="bar"><i id="bar-fill"></i></div>
       </div>
-    </main>
-
-    <!-- Footer Stats -->
-    <footer class="glass-card grid grid-cols-3 divide-x divide-x-reverse divide-[#EADDC8] px-2 py-3 text-center">
-      <div class="px-2">
-        <div class="text-xs text-[#5C7066]">کل دورانیہ</div>
-        <div id="lecture-timer" class="font-mono text-lg font-bold text-[#064E3B]">00:00:00</div>
-      </div>
-      <div class="px-2">
-        <div class="text-xs text-[#5C7066]">الفاظ</div>
-        <div id="word-count" class="font-mono text-lg font-bold text-[#064E3B]">0</div>
-      </div>
-      <div class="px-2">
-        <div class="text-xs text-[#5C7066]">ماڈل کی حالت</div>
-        <div class="flex items-center justify-center gap-2 text-sm font-semibold text-[#064E3B]">
-          <span id="model-dot" class="w-2.5 h-2.5 rounded-full bg-[#10B981]"></span>
-          <span id="model-health">CTranslate2 تیار</span>
-        </div>
-      </div>
-    </footer>
-
+      <div id="samples" class="samples hidden"><span>No audio handy? Try a sample:</span><span id="sample-list"></span></div>
+    </section>
   </div>
 
-  <script src="/static/app.js"></script>
+  <!-- Transcript -->
+  <section class="card" aria-labelledby="h-tr">
+    <div class="t-head">
+      <h2 id="h-tr">Transcript <span class="ur">ٹرانسکرپٹ</span></h2>
+      <div class="actions">
+        <button id="copy-btn" class="btn-ghost">Copy</button>
+        <button id="export-btn" class="btn-ghost">Download .txt</button>
+        <button id="clear-btn" class="btn-ghost">Clear</button>
+      </div>
+    </div>
+    <div id="transcript-container" dir="rtl" aria-live="polite">
+      <div id="placeholder-text">
+        <p>Press record or upload a file to begin.</p>
+        <p class="ur">مائیکرو فون آن کریں اور بولنا شروع کریں...</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="stats">
+    <div><span>Lecture time</span><b id="lecture-timer" class="num">00:00:00</b></div>
+    <div><span>Words</span><b id="word-count" class="num">0</b></div>
+    <div><span>Last latency</span><b id="latency-badge" class="num">— ms</b></div>
+    <div><span>Model</span><b><i id="model-dot" class="dot"></i><span id="model-health">Checking…</span></b></div>
+  </footer>
+</div>
+<div id="toast" class="toast" role="status"></div>
+<script src="/static/app.js"></script>
 </body>
 </html>
