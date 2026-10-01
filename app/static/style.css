@@ -1,0 +1,131 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;500;600;700&family=Noto+Nastaliq+Urdu:wght@500;700&display=swap');
+
+:root {
+  --bg-main: #FAF6F0;
+  --card-bg: #FFFFFF;
+  --border-champagne: #EADDC8;
+  --emerald-ink: #064E3B;
+  --emerald-hover: #04382A;
+  --champagne-pill: #F5E9D4;
+  --blush-rose: #F4C2C2;
+  --blush-rose-soft: #FDF2F8;
+  --blush-text: #9D174D;
+  --text-primary: #112A21;
+  --text-muted: #5C7066;
+}
+
+/* STRICT LIGHT THEME - NO AUTO DARK MODE OVERRIDES */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-main) !important;
+  color: var(--text-primary) !important;
+  font-family: 'Noto Sans Arabic', system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+}
+
+.nastaliq {
+  font-family: 'Noto Nastaliq Urdu', 'Noto Sans Arabic', serif;
+}
+
+/* Classy Cards with Warm Shadow */
+.glass-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-champagne);
+  border-radius: 1.25rem;
+  box-shadow: 0 10px 30px -10px rgba(6, 78, 59, 0.05);
+}
+
+/* Buttons */
+.btn-emerald {
+  background-color: var(--emerald-ink);
+  color: #FAF6F0;
+  transition: all 0.2s ease;
+}
+
+.btn-emerald:hover {
+  background-color: var(--emerald-hover);
+  transform: translateY(-1px);
+}
+
+.btn-emerald.recording {
+  background-color: #BE185D !important;
+  animation: pulse-blush 1.8s ease-out infinite;
+}
+
+@keyframes pulse-blush {
+  0% { box-shadow: 0 0 0 0 rgba(244, 194, 194, 0.8); }
+  70% { box-shadow: 0 0 0 16px rgba(244, 194, 194, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(244, 194, 194, 0); }
+}
+
+.btn-ghost {
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-champagne);
+  color: var(--text-primary);
+  transition: all 0.2s ease;
+}
+
+.btn-ghost:hover {
+  background-color: var(--blush-rose-soft);
+  border-color: var(--blush-rose);
+  color: var(--blush-text);
+}
+
+.badge-blush {
+  background-color: var(--blush-rose-soft);
+  border: 1px solid var(--blush-rose);
+  color: var(--blush-text);
+}
+
+.badge-champagne {
+  background-color: var(--champagne-pill);
+  border: 1px solid var(--border-champagne);
+  color: var(--text-primary);
+}
+
+/* Transcript Container */
+#transcript-container {
+  direction: rtl;
+  line-height: 2.4;
+  font-size: 1.25rem;
+  text-align: right;
+}
+
+#transcript-container p.fresh {
+  border-inline-start: 3px solid var(--emerald-ink);
+  padding-inline-start: 0.85rem;
+  margin-bottom: 0.75rem;
+  background: linear-gradient(to left, var(--blush-rose-soft), transparent 70%);
+  border-radius: 0 0.5rem 0.5rem 0;
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fab-btn {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: grid;
+  place-items: center;
+  border-radius: 9999px;
+}
+
+/* Custom Scrollbar */
+#transcript-container::-webkit-scrollbar {
+  width: 6px;
+}
+#transcript-container::-webkit-scrollbar-track {
+  background: var(--bg-main);
+}
+#transcript-container::-webkit-scrollbar-thumb {
+  background: var(--border-champagne);
+  border-radius: 4px;
+}

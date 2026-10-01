@@ -1,12 +1,23 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.websocket import router as websocket_router
 
-app = FastAPI(title="Urdu Lecture Transcriber", version="1.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("🚀 Starting Urdu Lecture Transcriber server...")
+    yield
+    print("🛑 Shutting down server...")
 
-# CORS setup for local testing flexibility
+app = FastAPI(
+    title="Urdu Lecture Transcriber",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# CORS setup for local development
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,10 +26,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve static files (HTML, CSS, JS)
+# Mount static directory for CSS/JS
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
-# Include WebSocket routing
+# Include WebSocket routes
 app.include_router(websocket_router)
 
 @app.get("/")
