@@ -7,8 +7,7 @@
 **Real-time Urdu lecture transcription that runs entirely on your own laptop.**
 اردو لیکچرز کی فوری تحریر، بغیر انٹرنیٹ اور بغیر کسی کلاؤڈ سروس کے۔
 
-<!-- Save a screenshot of the app as docs/screenshot.png -->
-![UrduBol screenshot](docs/screenshot.png)
+![UrduBol screenshot](docs/UrduBolScreenshot.png)
 
 ---
 
