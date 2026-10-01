@@ -11,12 +11,12 @@ body{background:var(--beige);color:var(--ink);font:16px/1.55 'DM Sans','Noto San
 .shell{max-width:1040px;margin:0 auto;padding:2rem 1.25rem 3rem;display:flex;flex-direction:column;gap:1.25rem}
 
 /* Header */
-.top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:1rem;padding:.25rem .25rem .75rem}
-h1{display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
+.top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:1rem;padding:.75rem .25rem 1.25rem}
+h1{display:flex;align-items:center;gap:1.5rem;flex-wrap:wrap}
 .wm{font-family:Fraunces,Georgia,serif;font-weight:600;font-size:clamp(2.6rem,7vw,3.8rem);color:var(--emerald);letter-spacing:-.02em;line-height:1.05}
-.wm-ur{font-size:clamp(1.7rem,4vw,2.3rem);color:#2f7a63;line-height:1.7}
-.tag{color:var(--muted);font-size:1rem}
-.tag.ur{font-size:.95rem;line-height:1.9}
+.wm-ur{font-size:clamp(1.7rem,4vw,2.3rem);color:#2f7a63;line-height:2.3;padding:.75rem .75rem .35rem;margin-inline-start:.5rem}
+.tag{color:var(--muted);font-size:1rem;margin-top:.25rem}
+.tag.ur{font-size:1rem;line-height:2.4;margin-top:.4rem;padding:.3rem 0 .15rem}
 .badges{display:flex;gap:.5rem;flex-wrap:wrap}
 .badge{background:var(--emerald);color:var(--cream);border-radius:999px;padding:.3rem .9rem;font-size:.8rem;font-weight:600}
 .badge.alt{background:var(--sage);color:var(--emerald)}
@@ -26,7 +26,7 @@ h1{display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
 @media (max-width:760px){.grid2{grid-template-columns:1fr}}
 .card{background:#fff;border:1px solid var(--sand);border-radius:1.25rem;padding:1.5rem;box-shadow:0 12px 30px -16px rgba(6,78,59,.18);display:flex;flex-direction:column;gap:.9rem}
 h2{font-family:Fraunces,Georgia,serif;font-weight:600;font-size:1.4rem;color:var(--emerald);display:flex;align-items:baseline;gap:.75rem;flex-wrap:wrap}
-h2 .ur{font-family:'Noto Nastaliq Urdu',serif;font-size:1.05rem;color:var(--muted);font-weight:500}
+h2 .ur{font-family:'Noto Nastaliq Urdu',serif;font-size:1.05rem;color:var(--muted);font-weight:500;line-height:2.2;padding:.35rem .25rem 0;margin-inline-start:.25rem}
 .hint{color:var(--muted);font-size:.92rem;margin-top:-.4rem}
 
 /* Record */

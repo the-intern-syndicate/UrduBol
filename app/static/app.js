@@ -4,11 +4,11 @@ const box = $('transcript-container'), btn = $('toggle-mic-btn'), btnText = $('b
 const PLACEHOLDER = box.innerHTML;
 
 // Chunking: cut at a pause once we have >= MIN_S seconds, or force a cut at MAX_S.
-const MIN_S = 2, MAX_S = 8, PAUSE_BLOCKS = 2, SILENCE_RMS = 0.012;
+const MIN_S = 2, MAX_S = 8, PAUSE_BLOCKS = 2, SILENCE_RMS = 0.005;
 
 let recording = false, busyUpload = false, ws, tick, finishT, secs = 0;
 let stream, actx, analyser, proc, SR = 16000;
-let chunks = [], len = 0, silent = 0, heard = false, pending = 0;
+let chunks = [], len = 0, silent = 0, heard = false, pending = 0, sent = 0, got = 0, empty = 0, everHeard = false;
 
 /* ---------- UI helpers ---------- */
 function toast(msg) {
@@ -32,7 +32,7 @@ function addSegment(text, ms) {
   updateWords();
 }
 function refreshStatus() {
-  if (recording) setStatus(pending ? `Listening… transcribing ${pending} chunk${pending > 1 ? 's' : ''}` : 'Listening…', 'live');
+  if (recording) setStatus(`Listening… ${sent} sent, ${got} transcribed${empty ? `, ${empty} empty` : ''}`, 'live');
 }
 
 /* ---------- Audio helpers ---------- */
@@ -51,7 +51,7 @@ function toWav(samples, sr) {
   return b;
 }
 function flush() {
-  if (heard && len >= SR * 0.3 && ws?.readyState === 1) { ws.send(toWav(concat(chunks, len), SR)); pending++; }
+  if (heard && len >= SR * 0.3 && ws?.readyState === 1) { ws.send(toWav(concat(chunks, len), SR)); pending++; sent++; }
   chunks = []; len = 0; silent = 0; heard = false; refreshStatus();
 }
 
@@ -70,7 +70,7 @@ function openSocket() {
   });
 }
 function onMsg(m) {
-  if (m.type === 'segment') { pending = Math.max(0, pending - 1); addSegment(m.text, m.latency_ms); refreshStatus(); }
+  if (m.type === 'segment') { pending = Math.max(0, pending - 1); got++; if (!m.text) empty++; addSegment(m.text, m.latency_ms); refreshStatus(); }
   else if (m.type === 'done') { clearTimeout(finishT); ws.close(); setStatus('Ready'); }
 }
 
@@ -78,7 +78,7 @@ function onMsg(m) {
 async function start() {
   if (busyUpload) return toast('Wait for the upload to finish');
   actx = new AudioContext({ sampleRate: 16000 });          // created inside the click so the browser allows it
-  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }); }
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
   catch { actx.close(); return setStatus('Microphone blocked. Allow access in the browser and try again.', 'err'); }
   btn.disabled = true; setStatus('Connecting to the model…');
   try { ws = await openSocket(); }
@@ -88,12 +88,12 @@ async function start() {
   const src = actx.createMediaStreamSource(stream);
   analyser = actx.createAnalyser(); analyser.fftSize = 128; src.connect(analyser);
   proc = actx.createScriptProcessor(4096, 1, 1); src.connect(proc); proc.connect(actx.destination);
-  chunks = []; len = 0; silent = 0; heard = false; pending = 0; secs = 0; renderTime();
+  chunks = []; len = 0; silent = 0; heard = false; pending = 0; sent = got = empty = 0; everHeard = false; secs = 0; renderTime();
   proc.onaudioprocess = e => {
     if (!recording) return;
     const d = new Float32Array(e.inputBuffer.getChannelData(0));
     let sum = 0; for (let i = 0; i < d.length; i++) sum += d[i] * d[i];
-    if (Math.sqrt(sum / d.length) > SILENCE_RMS) { heard = true; silent = 0; } else silent++;
+    if (Math.sqrt(sum / d.length) > SILENCE_RMS) { heard = true; everHeard = true; silent = 0; } else silent++;
     chunks.push(d); len += d.length;
     const sec = len / SR;
     if (!heard && sec >= MIN_S) { chunks = chunks.slice(-2); len = chunks.reduce((a, c) => a + c.length, 0); return; }  // drop silence, keep a short lead-in
@@ -102,7 +102,7 @@ async function start() {
   recording = true;
   btn.classList.add('recording'); btn.setAttribute('aria-pressed', 'true');
   btnText.textContent = 'Stop recording'; dot.classList.remove('hidden');
-  tick = setInterval(() => { secs++; renderTime(); }, 1000);
+  tick = setInterval(() => { secs++; renderTime(); if (secs === 6 && !everHeard) setStatus('No sound detected. Check your microphone input and volume.', 'err'); }, 1000);
   refreshStatus();
 }
 function stop(abort = false) {

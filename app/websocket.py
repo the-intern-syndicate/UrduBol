@@ -43,7 +43,7 @@ async def websocket_transcribe(ws: WebSocket):
                 if len(data) >= 100:
                     try:
                         result = await asyncio.to_thread(_process, engine, data)
-                        print(f"📝 {result['latency_ms']} ms -> {result['text'][:60]}")
+                        print(f"📝 chunk done in {result['latency_ms']} ms, {len(result['text'])} chars", flush=True)
                     except Exception as err:
                         print(f"Error processing audio chunk: {err}")
                 # Always reply, even when empty, so the UI can track pending chunks.
